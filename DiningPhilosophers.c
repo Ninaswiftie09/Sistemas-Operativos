@@ -19,6 +19,9 @@ static sem_t room;              // semáforo N-1 (el "mayordomo")
 
 static volatile int running = 1;
 
+// contador de comidas (una por filósofo)
+static int *eat_count = NULL;
+
 // para logs ordenados 
 static pthread_mutex_t log_mx = PTHREAD_MUTEX_INITIALIZER;
 
@@ -55,8 +58,9 @@ static void *philosopher_thread(void *arg) {
         pthread_mutex_lock(&forks[left]);
         pthread_mutex_lock(&forks[right]);
 
-        // CRITICAL SECTION: "comer" (usa recursos compartidos: tenedores)
+        // CRITICAL SECTION: "comer"
         log_line(id, ">>> entra a comer (tiene ambos tenedores)");
+        eat_count[id]++;  // contar que comió
         rand_sleep_ms(80, 220);
         log_line(id, "<<< sale de comer (va a soltar tenedores)");
 
@@ -83,11 +87,12 @@ int main(int argc, char **argv) {
 
     srand((unsigned)time(NULL));
 
-    forks  = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t) * N);
+    forks   = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t) * N);
     threads = (pthread_t *)malloc(sizeof(pthread_t) * N);
     philos  = (Philosopher *)malloc(sizeof(Philosopher) * N);
+    eat_count = (int *)calloc(N, sizeof(int));
 
-    if (!forks || !threads || !philos) {
+    if (!forks || !threads || !philos || !eat_count) {
         fprintf(stderr, "Error de memoria.\n");
         return 1;
     }
@@ -114,10 +119,28 @@ int main(int argc, char **argv) {
         pthread_join(threads[i], NULL);
     }
 
+    // Resumen
+    printf("\n== Resumen de comidas ==\n");
+    int min = eat_count[0], max = eat_count[0], total = 0;
+    for (int i = 0; i < N; i++) {
+        printf("Filosofo %d comio %d veces\n", i, eat_count[i]);
+        if (eat_count[i] < min) min = eat_count[i];
+        if (eat_count[i] > max) max = eat_count[i];
+        total += eat_count[i];
+    }
+    printf("Total: %d | Min: %d | Max: %d\n", total, min, max);
+
+    if (min == 0) {
+        printf("OJO: al menos un filosofo no comio (posible starvation).\n");
+    } else if (max >= 3 * min) {
+        printf("OJO: hay mucha desigualdad (posible starvation / falta de fairness).\n");
+    }
+
     // limpieza
     sem_destroy(&room);
     for (int i = 0; i < N; i++) pthread_mutex_destroy(&forks[i]);
 
+    free(eat_count);
     free(forks);
     free(threads);
     free(philos);
